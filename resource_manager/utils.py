@@ -1,10 +1,13 @@
+import importlib.util
 import hashlib
+import inspect
 import json
 import os
 import re
 
 first_cap = re.compile('(.)([A-Z][a-z]+)')
 all_cap = re.compile('([a-z0-9])([A-Z])')
+valid_module = re.compile(r'^[^\d\W]\w*$')
 
 
 def snake_case(name):
@@ -19,21 +22,29 @@ def walk(path, source, exclude):
 
     for root, dirs, files in os.walk(path):
         for directory in dirs:
-            dir_path = os.path.join(root, directory)
-            modules.extend(walk(dir_path, f'{source}.{directory}', exclude))
+            if valid_module.match(directory):
+                dir_path = os.path.join(root, directory)
+                modules.extend(walk(dir_path, '{}.{}'.format(source, directory), exclude))
 
         for file in files:
             name, extension = os.path.splitext(file)
-            if extension == '.py':
-                file_path = os.path.join(root, file)
-                modules.append((file_path, f'{source}.{name}'))
+            file_path = os.path.join(root, file)
+            name = inspect.getmodulename(file_path)
+            if name is not None and extension == '.py':
+                modules.append((file_path, '{}.{}'.format(source, name)))
         break
     return modules
 
 
+def import_by_path(path, source):
+    spec = importlib.util.spec_from_file_location(source, path)
+    _module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(_module)
+
+
 def handle_corruption(db_path):
     db_path = os.path.realpath(db_path)
-    raise RuntimeError(f'Resources base file corrupted. You may want to delete it: {db_path}') from None
+    raise RuntimeError('Resources base file corrupted. You may want to delete it: %s' % db_path) from None
 
 
 def read_config(path):
@@ -62,7 +73,7 @@ def get_hash(path, buffer_size=65536):
             current_hash.update(data)
             data = file.read(buffer_size)
 
-    return f'{current_hash.hexdigest()}_{os.path.getsize(path)}'
+    return '{}_{}'.format(current_hash.hexdigest(), os.path.getsize(path))
 
 
 def put_in_stack(method):
